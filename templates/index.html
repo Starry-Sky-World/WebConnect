@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>WebConnect</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <style>
+        #terminal { width: 100%; height: 400px; }
+    </style>
+</head>
+<body>
+    <h1>Web SSH</h1>
+    <form id="connect">
+        Host: <input id="host" value="localhost">
+        User: <input id="username">
+        Password: <input id="password" type="password">
+        Port: <input id="port" value="22">
+        <button type="submit">Connect</button>
+    </form>
+    <div id="terminal"></div>
+
+    <h2>Upload File</h2>
+    <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+        Host: <input name="host">
+        User: <input name="username">
+        Password: <input name="password" type="password">
+        Port: <input name="port" value="22">
+        Remote Path: <input name="remote_path">
+        File: <input type="file" name="file">
+        <button type="submit">Upload</button>
+    </form>
+
+    <h2>Download File</h2>
+    <form id="download-form" action="/download" method="get">
+        Host: <input name="host">
+        User: <input name="username">
+        Password: <input name="password" type="password">
+        Port: <input name="port" value="22">
+        Remote Path: <input name="remote_path">
+        <button type="submit">Download</button>
+    </form>
+
+    <h2>File Manager</h2>
+    <form id="list-form">
+        Host: <input name="host">
+        User: <input name="username">
+        Password: <input name="password" type="password">
+        Port: <input name="port" value="22">
+        Path: <input name="path" value=".">
+        <button type="submit">List</button>
+    </form>
+    <ul id="file-list"></ul>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+    <script>
+        const term = new Terminal();
+        term.open(document.getElementById('terminal'));
+
+        document.getElementById('connect').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const host = document.getElementById('host').value;
+            const user = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const port = document.getElementById('port').value;
+            const wsUrl = `ws://${location.host}/ws/ssh?host=${encodeURIComponent(host)}&username=${encodeURIComponent(user)}&password=${encodeURIComponent(password)}&port=${encodeURIComponent(port)}`;
+            const ws = new WebSocket(wsUrl);
+            ws.onmessage = function(event) { term.write(event.data); };
+            term.onData(function(data) { ws.send(data); });
+        });
+
+        document.getElementById('list-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const params = new URLSearchParams(formData);
+            fetch('/list?' + params.toString()).then(r => r.json()).then(data => {
+                const list = document.getElementById('file-list');
+                list.innerHTML = '';
+                data.items.forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = item.filename + (item.is_dir ? '/' : '');
+                    if (!item.is_dir) {
+                        const downloadParams = new URLSearchParams({
+                            host: formData.get('host'),
+                            username: formData.get('username'),
+                            password: formData.get('password'),
+                            port: formData.get('port'),
+                            remote_path: formData.get('path') + '/' + item.filename,
+                        });
+                        const dl = document.createElement('a');
+                        dl.href = '/download?' + downloadParams.toString();
+                        dl.textContent = 'Download';
+                        li.appendChild(document.createTextNode(' '));
+                        li.appendChild(dl);
+
+                        const delBtn = document.createElement('button');
+                        delBtn.textContent = 'Delete';
+                        delBtn.onclick = () => {
+                            const delData = new FormData();
+                            delData.append('host', formData.get('host'));
+                            delData.append('username', formData.get('username'));
+                            delData.append('password', formData.get('password'));
+                            delData.append('port', formData.get('port'));
+                            delData.append('remote_path', formData.get('path') + '/' + item.filename);
+                            fetch('/delete', {method: 'POST', body: delData}).then(() => li.remove());
+                        };
+                        li.appendChild(document.createTextNode(' '));
+                        li.appendChild(delBtn);
+                    }
+                    list.appendChild(li);
+                });
+            });
+        });
+    </script>
+</body>
+</html>
